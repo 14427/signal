@@ -1,8 +1,11 @@
 // signal.rs
-#[link(name = "signal", vers = "0.2", author = "sbd")];
+#[link(name = "signal", vers = "0.3", author = "sbd")];
 use either::*;
 use pipes::{Chan, SharedChan, Port, PortSet, Selectable, select2i, selecti};
 use task::spawn;
+
+extern mod std; // Needing this here might be a bug
+mod time;
 
 pub trait Clone {
     fn clone(&self) -> self;
