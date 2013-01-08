@@ -12,7 +12,7 @@ Examples
 
 Hello World:
 ```
-let hello = constant("Hello world");
+let hello = constant(~"Hello world");
 hello.lift(|msg| io::println(msg) );
 ```
 
