@@ -10,6 +10,12 @@ Inspired by [Elm](http://elm-lang.org/)
 Examples
 --------
 
+Hello World:
+```
+let hello = constant("Hello world");
+hello.lift(|msg| io::println(msg) );
+```
+
 Clock:
 ```
 let clock = every(1000); // Send a signal every 1000 milliseconds
