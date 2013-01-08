@@ -313,12 +313,9 @@ pub fn keepWhen<T: Clone Owned>(signal: &Signal<T>, other: &Signal<bool>, defaul
     filter_lift(&merged, default, |&(_, x)| x, |(x, _), _| x)
 }
 
-/*pub fn every(ms: uint) -> Signal<Tm> {
-    let iotask = uv::global_loop::get();
-    let initial = time::now();
-    do dispatcher(Some(initial)) {
-        timer::sleep(iotask, ms);
-        time::now()
-    }
-}*/
+pub fn split<T: Clone Owned, U: Clone Owned>(signal: &Signal<Either<T, U>>, left: T, right: U) -> (Signal<T>, Signal<U>) {
+    let left = filter_lift(signal, left, is_left, |val, _| val.unwrap_left());
+    let right = filter_lift(signal, right, is_right, |val, _| val.unwrap_right());
+    (left, right)
+}
 
