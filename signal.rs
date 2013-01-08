@@ -155,6 +155,36 @@ pub fn lift2<T: Clone Owned, U: Clone Owned, V: Clone Owned>(s1: &Signal<T>, s2:
     signal
 }
 
+pub fn lift3<A: Clone Owned, B: Clone Owned, C: Clone Owned, V: Clone Owned>(
+    s1: &Signal<A>, s2: &Signal<B>, s3: &Signal<C>, f: ~fn(A, B, C) -> V) -> Signal<V>
+{
+    merge3(s1, s2, s3).lift(|(x, y, z)| f(x, y, z))
+}
+
+pub fn lift4<A: Clone Owned, B: Clone Owned, C: Clone Owned, D: Clone Owned, V: Clone Owned>(
+    s1: &Signal<A>, s2: &Signal<B>, s3: &Signal<C>, s4: &Signal<D>, f: ~fn(A, B, C, D) -> V) -> Signal<V>
+{
+    let m1 = &merge2(s1, s2);
+    let m2 = &merge2(s3, s4);
+    merge2(m1, m2).lift(|((a, b), (c, d))| f(a, b, c, d))
+}
+
+pub fn lift5<A: Clone Owned, B: Clone Owned, C: Clone Owned, D: Clone Owned, E: Clone Owned, V: Clone Owned>(
+    s1: &Signal<A>, s2: &Signal<B>, s3: &Signal<C>, s4: &Signal<D>, s5: &Signal<E>, f: ~fn(A, B, C, D, E) -> V) -> Signal<V>
+{
+    let m1 = &merge2(s1, s2);
+    let m2 = &merge3(s3, s4, s5);
+    merge2(m1, m2).lift(|((a, b), (c, d, e))| f(a, b, c, d, e))
+}
+
+pub fn lift6<A: Clone Owned, B: Clone Owned, C: Clone Owned, D: Clone Owned, E: Clone Owned, F: Clone Owned, V: Clone Owned>(
+    s1: &Signal<A>, s2: &Signal<B>, s3: &Signal<C>, s4: &Signal<D>, s5: &Signal<E>, s6: &Signal<F>, op: ~fn(A, B, C, D, E, F) -> V) -> Signal<V>
+{
+    let m1 = &merge3(s1, s2, s3);
+    let m2 = &merge3(s4, s5, s6);
+    merge2(m1, m2).lift(|((a, b, c), (d, e, f))| op(a, b, c, d, e, f))
+}
+
 #[inline(always)]
 pub fn constant<T: Clone Owned>(value: T) -> Signal<T> {
     let (port, chan) = pipes::stream();
@@ -233,10 +263,10 @@ pub fn merge2<T: Clone Owned, U: Clone Owned>(one: &Signal<T>, two: &Signal<U>) 
     let (update1, client1) = pipes::stream();
     let (update2, client2) = pipes::stream();
 
-    io::println("Before 1");
+    //io::println("Before 1");
     one.add_chan(client1);
     two.add_chan(client2);
-    io::println("After 1");
+    //io::println("After 1");
 
     do spawn {
         let mut chans: ~[Chan<(T, U)>] = ~[];
@@ -265,6 +295,58 @@ pub fn merge2<T: Clone Owned, U: Clone Owned>(one: &Signal<T>, two: &Signal<U>) 
             if push {
                 for chans.each |c| {
                     let value = (last1.clone(), last2.clone());
+                    c.send(value);
+                }
+            }
+        }
+    }
+
+    Signal::new(chan)
+}
+
+#[inline(always)]
+pub fn merge3<A: Clone Owned, B: Clone Owned, C: Clone Owned>(s1: &Signal<A>, s2: &Signal<B>, s3: &Signal<C>) -> Signal<(A, B, C)> {
+    let (port, chan) = pipes::stream();
+
+    let (update1, client1) = pipes::stream();
+    let (update2, client2) = pipes::stream();
+    let (update3, client3) = pipes::stream();
+
+    //io::println("Before 1");
+    s1.add_chan(client1);
+    s2.add_chan(client2);
+    s3.add_chan(client3);
+    //io::println("After 1");
+
+    do spawn {
+        let mut chans: ~[Chan<(A, B, C)>] = ~[];
+        //io::println("Before 2");
+        let mut last1 = update1.recv();
+        let mut last2 = update2.recv();
+        let mut last3 = update3.recv();
+        //io::println("After 2");
+        let mut push: bool;
+
+        loop {
+            push = true;
+            
+            match selecti([update1 as @Selectable, update2 as @Selectable, update3 as @Selectable, port as @Selectable]) {
+                0 => last1 = update1.recv(),
+                1 => last2 = update2.recv(),
+                2 => last3 = update3.recv(),
+                3 => {
+                    let ch: Chan<(A, B, C)> = port.recv();
+                    let value = (last1.clone(), last2.clone(), last3.clone());
+                    ch.send(value);
+                    chans.push(ch);
+                    push = false;
+                }
+                _ => fail ~"Unhandled port",
+            }
+
+            if push {
+                for chans.each |c| {
+                    let value = (last1.clone(), last2.clone(), last3.clone());
                     c.send(value);
                 }
             }
