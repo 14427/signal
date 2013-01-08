@@ -259,7 +259,7 @@ pub fn merges<T: Clone Owned>(signals: &[&Signal<T>]) -> Signal<T> {
     let ports = do signals.map |signal| {
         let (port, chan) = pipes::stream();
         signal.add_chan(chan);
-        value = Some( port.recv() );
+        value = port.try_recv();
         port
     };
 
@@ -272,7 +272,10 @@ pub fn merges<T: Clone Owned>(signals: &[&Signal<T>]) -> Signal<T> {
         }
     }
 
-    let value = value.unwrap();
+    let value = match value {
+        Some(v) => v,
+        None => fail ~"No active signals provided",
+    }; //value.unwrap();
 
     signal_loop(value, merged_port, client_port, |x, _| x, |_| true);
 
