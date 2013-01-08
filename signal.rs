@@ -62,18 +62,24 @@ pub fn signal_loop<T: Clone Owned, U: Clone Owned>(
     do spawn {
         let mut chans: ~[Chan<U>] = ~[];
         let mut value = default.clone();
-        let mut open = true;
+        let mut update_open = true;
+        let mut client_open = true;
         
         loop {
-            if open {
+            if client_open && update_open {
                 match select2i(&update, &new_client) {
                     Left(()) => {
-                        let tmp = update.recv() ;
-                        if filter(&tmp) {
-                            value = process(tmp, value);
-                            for chans.each |c| {
-                                c.send( value.clone() );
-                            }
+                        let opt_tmp = update.try_recv();
+                        match opt_tmp {
+                            Some(tmp) => {
+                                if filter(&tmp) {
+                                    value = process(tmp, value);
+                                    for chans.each |c| {
+                                        c.send( value.clone() );
+                                    }
+                                }
+                            },
+                            None => update_open = false,
                         }
                     },
                     Right(()) => {
@@ -83,18 +89,34 @@ pub fn signal_loop<T: Clone Owned, U: Clone Owned>(
                                 ch.send( value.clone() );
                                 chans.push(ch);
                             },
-                            None => open = false,
+                            None => client_open = false,
                         }
                     },
                 }
-            } else {
-                let tmp = update.recv() ;
-                if filter(&tmp) {
-                    value = process(tmp, value);
-                    for chans.each |c| {
-                        c.send( value.clone() );
-                    }
+            } else if update_open {
+                let opt_tmp = update.try_recv();
+                match opt_tmp {
+                    Some(tmp) => {
+                        if filter(&tmp) {
+                            value = process(tmp, value);
+                            for chans.each |c| {
+                                c.send( value.clone() );
+                            }
+                        }
+                    },
+                    None => update_open = false,
                 }
+            } else if client_open {
+                let opt_ch: Option<Chan<U>> = new_client.try_recv();
+                match opt_ch {
+                    Some(ch) => {
+                        ch.send( value.clone() );
+                        chans.push(ch);
+                    },
+                    None => client_open = false,
+                }
+            } else {
+                break
             }
         }
     }
@@ -139,8 +161,11 @@ pub fn constant<T: Clone Owned>(value: T) -> Signal<T> {
 
     do spawn {
         loop {
-            let client: Chan<T> = port.recv();
-            client.send( value.clone() );
+            let client: Option<Chan<T>> = port.try_recv();
+            match client {
+                Some(ch) => ch.send( value.clone() ),
+                None => break,
+            }
         }
     }
 
@@ -182,6 +207,7 @@ pub fn merge<T: Clone Owned>(one: &Signal<T>, two: &Signal<T>) -> Signal<T> {
     do spawn {
         let mut chans: ~[Chan<T>] = ~[];
         loop {
+            // FIXME: Add to select
             while port.peek() {
                 chans.push( port.recv() );
             }
@@ -214,10 +240,10 @@ pub fn merge2<T: Clone Owned, U: Clone Owned>(one: &Signal<T>, two: &Signal<U>) 
 
     do spawn {
         let mut chans: ~[Chan<(T, U)>] = ~[];
-        io::println("Before 2");
+        //io::println("Before 2");
         let mut last1 = update1.recv();
         let mut last2 = update2.recv();
-        io::println("After 2");
+        //io::println("After 2");
         let mut push: bool;
 
         loop {
@@ -275,7 +301,7 @@ pub fn merges<T: Clone Owned>(signals: &[&Signal<T>]) -> Signal<T> {
     let value = match value {
         Some(v) => v,
         None => fail ~"No active signals provided",
-    }; //value.unwrap();
+    };
 
     signal_loop(value, merged_port, client_port, |x, _| x, |_| true);
 
