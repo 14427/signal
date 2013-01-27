@@ -14,7 +14,7 @@ pub fn every(ms: uint) -> Signal<Tm> {
     let initial = time::now();
     do dispatcher(Some(initial)) {
         sleep(ms);
-        time::now()
+        Some(time::now())
     }
 }
 

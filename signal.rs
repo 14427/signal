@@ -533,23 +533,3 @@ pub fn split<T: Clone Owned, U: Clone Owned>(signal: &Signal<Either<T, U>>, left
     (left, right)
 }
 
-// TODO: Switch to iterable
-pub fn stream<T: Clone Owned>(arr: ~[T]) -> Signal<T> {
-    let (client_port, client_chan) = pipes::stream::<Chan<T>>();
-
-    do spawn {
-        loop {
-            match client_port.try_recv() {
-                Some(ch) => {
-                    for arr.each |v| {
-                        ch.send( v.clone() );
-                    }
-                },
-                None => break,
-            }
-        }
-    }
-
-    Signal::new(client_chan)
-}
-
