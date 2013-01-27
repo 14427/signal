@@ -201,14 +201,16 @@ pub fn constant<T: Clone Owned>(value: T) -> Signal<T> {
 }
 
 #[inline(always)]
-pub fn dispatcher<T: Clone Owned>(default: Option<T>, f: ~fn() -> T) -> Signal<T> {
+pub fn dispatcher<T: Clone Owned>(default: Option<T>, f: ~fn() -> Option<T>) -> Signal<T> {
     let (client_port, client_chan) = pipes::stream();
     let (value_port, value_chan) = pipes::stream();
 
     do spawn {
         loop {
-            let value = f();
-            value_chan.send(value);
+            match f() {
+                Some(value) => value_chan.send(value),
+                None => break,
+            }
         }
     }
 
@@ -529,5 +531,25 @@ pub fn split<T: Clone Owned, U: Clone Owned>(signal: &Signal<Either<T, U>>, left
     let left = filter_lift(signal, left, is_left, |val, _| val.unwrap_left());
     let right = filter_lift(signal, right, is_right, |val, _| val.unwrap_right());
     (left, right)
+}
+
+// TODO: Switch to iterable
+pub fn stream<T: Clone Owned>(arr: ~[T]) -> Signal<T> {
+    let (client_port, client_chan) = pipes::stream::<Chan<T>>();
+
+    do spawn {
+        loop {
+            match client_port.try_recv() {
+                Some(ch) => {
+                    for arr.each |v| {
+                        ch.send( v.clone() );
+                    }
+                },
+                None => break,
+            }
+        }
+    }
+
+    Signal::new(client_chan)
 }
 
