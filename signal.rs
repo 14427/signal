@@ -43,15 +43,15 @@ impl<T: Clone Owned> Signal<T> {
     }
 }
 
-/*impl <T: Clone Owned> Signal<T>: Clone {
+impl <T: Clone Owned> Signal<T>: Clone {
     fn clone(&self) -> Signal<T> {
         Signal { update: self.update.clone() }
     }
-}*/
+}
 
 impl <T: Clone Owned> Signal<T>: Owned;
 
-// Work around issue #4718
+// Work around issue #4718, also nice to have custom spawner
 #[inline(always)]
 fn spawn(f: ~fn()) {
     use task::{ spawn, spawn_sched, SchedMode };
@@ -246,19 +246,75 @@ pub fn merge<T: Clone Owned>(one: &Signal<T>, two: &Signal<T>) -> Signal<T> {
 
     do spawn {
         let mut chans: ~[Chan<T>] = ~[];
-        loop {
-            // FIXME: Add to select
-            while port.peek() {
-                chans.push( port.recv() );
-            }
-            
-            let value = match select2i(&update1, &update2) {
-                Left(()) => update1.recv(),
-                Right(()) => update2.recv(),
-            };
 
-            for chans.each |c| {
-                c.send( value.clone() );
+        let _ = update2.recv();
+        let mut last = update1.recv();
+
+        let mut push: bool;
+
+        let mut u1_open = true;
+        let mut u2_open = true;
+        let mut client_open = true;
+
+        let header1 = PacketHeader();
+        let header2 = PacketHeader();
+        let header3 = PacketHeader();
+
+        let mut ports = ~[update1.header(), update2.header(), port.header()];
+
+        while u1_open || u2_open || client_open {
+            push = false;
+            match selecti( ports ) {
+                0 => {
+                    match update1.try_recv() {
+                        Some(value) => {
+                            last = value;
+                            ports[0] = update1.header();
+                            push = true;
+                        }
+                        None => {
+                            u1_open = false;
+                            ports[0] = &header1;
+                        }
+                    }
+                }
+                1 => {
+                    match update2.try_recv() {
+                        Some(value) => {
+                            last = value;
+                            ports[1] = update2.header();
+                            push = true;
+                        }
+                        None => {
+                            u2_open = false;
+                            ports[1] = &header2;
+                        }
+                    }
+                }
+                2 => {
+                    match port.try_recv() {
+                        Some(ch) => {
+                            let ch: Chan<T> = ch;
+                            ch.send( last.clone() );
+                            chans.push( ch );
+                            ports[2] = port.header();
+                        }
+                        None => {
+                            client_open = false;
+                            ports[2] = &header3;
+                        }
+                    }
+                }
+                _ => fail ~"Merge incorrectly implemented",
+            }
+
+            if push {
+                for chans.each |ch| {
+                    let value = last.clone();
+                    if !ch.try_send( value ) {
+                        fail ~"merge() - This need to get fixed";
+                    }
+                }
             }
         }
     }
@@ -345,7 +401,7 @@ pub fn merge2<T: Clone Owned, U: Clone Owned>(one: &Signal<T>, two: &Signal<U>) 
                 for chans.each |ch| {
                     let value = (last1.clone(), last2.clone());
                     if !ch.try_send( value ) {
-                        fail ~"This need to get fixed";
+                        fail ~"merge2() - This need to get fixed";
                     }
                 }
             }
@@ -456,7 +512,7 @@ pub fn merge3<A: Clone Owned, B: Clone Owned, C: Clone Owned>(
                 for chans.each |ch| {
                     let value = (last1.clone(), last2.clone(), last3.clone());
                     if !ch.try_send( value ) {
-                        fail ~"This need to get fixed";
+                        fail ~"merge3() - This need to get fixed";
                     }
                 }
             }
@@ -485,8 +541,10 @@ pub fn merges<T: Clone Owned>(signals: &[&Signal<T>]) -> Signal<T> {
 
     do spawn {
         loop {
-            let value = port_set.recv();
-            merged_chan.send(value);
+            match port_set.try_recv() {
+                Some(value) => merged_chan.send(value),
+                None => break,
+            }
         }
     }
 
