@@ -1,8 +1,8 @@
 // signal.rs
 #[link(name = "signal", vers = "0.3", author = "sbd")];
+use cmp::Eq;
 use either::*;
 use pipes::*;
-use task::spawn;
 
 extern mod std; // Needing this here might be a bug
 pub mod time;
@@ -50,6 +50,16 @@ impl<T: Clone Owned> Signal<T> {
 }*/
 
 impl <T: Clone Owned> Signal<T>: Owned;
+
+// Work around issue #4718
+#[inline(always)]
+fn spawn(f: ~fn()) {
+    use task::{ spawn, spawn_sched, SchedMode };
+    use task::{ SingleThreaded,ThreadPerCore, ThreadPerTask, ManualThreads, PlatformThread };
+
+    let scheduler = ManualThreads(4);
+    spawn_sched(scheduler, f);
+}
 
 #[inline(always)]
 pub fn signal_loop<T: Clone Owned, U: Clone Owned>(
@@ -503,6 +513,20 @@ pub fn foldp<T: Clone Owned, U: Clone Owned>(signal: &Signal<T>, default: U, f: 
 }
 
 #[inline(always)]
+pub fn foldp1<T: Clone Owned>(signal: &Signal<T>, f: ~fn(T, T) -> T) -> Signal<T> {
+    let (update, chan) = pipes::stream();
+    let (client_port, client_chan) = pipes::stream();
+
+    signal.add_chan(chan);
+
+    let initial = update.recv();
+
+    signal_loop(initial, update, client_port, f, |_| true);
+
+    Signal::new(client_chan)
+}
+
+#[inline(always)]
 pub fn filter<T: Clone Owned>(signal: &Signal<T>, default: T, f: ~fn(&T) -> bool) -> Signal<T> {
     let (update, chan) = pipes::stream();
     let (client_port, client_chan) = pipes::stream();
@@ -525,6 +549,68 @@ pub fn countIf<T: Clone Owned>(signal: &Signal<T>, default: T, f: ~fn(&T)-> bool
 pub fn keepWhen<T: Clone Owned>(signal: &Signal<T>, other: &Signal<bool>, default: T) -> Signal<T> {
     let merged = merge2(signal, other);
     filter_lift(&merged, default, |&(_, x)| x, |(x, _), _| x)
+}
+
+// TODO: implementing this with a more generic function (a filter-fold?) would be good
+#[inline(always)]
+pub fn dropRepeats<T: Eq Clone Owned>(signal: &Signal<T>) -> Signal<T> {
+    let (update, chan) = pipes::stream();
+    let (client_port, client_chan) = pipes::stream();
+
+    signal.add_chan(chan);
+
+    do spawn {
+        let mut value = update.recv();
+
+        let header0 = PacketHeader();
+        let header1 = PacketHeader();
+
+        let mut client_open = true;
+        let mut update_open = true;
+
+        let mut chans: ~[Chan<T>] = ~[];
+
+        let mut ports = ~[update.header(), client_port.header()];
+
+        while client_open || update_open {
+            match selecti(ports) {
+                0 => {
+                    match update.try_recv() {
+                        Some(v) => {
+                            if v != value {
+                                value = v;
+                                for chans.each |ch| {
+                                    ch.send( value.clone() );
+                                }
+                            }
+                            ports[0] = update.header();
+                        }
+                        None => {
+                            update_open = false;
+                            ports[0] = &header0;
+                        }
+                    }
+                }
+                1 => {
+                    match client_port.try_recv() {
+                        Some(ch) => {
+                            let ch: Chan<T> = ch;
+                            ch.send( value.clone() );
+                            chans.push(ch);
+                            ports[1] = client_port.header();
+                        }
+                        None => {
+                            client_open = false;
+                            ports[1] = &header1;
+                        }
+                    }
+                }
+                _ => fail ~"dropRepeats incorrectly implemented",
+            }
+        }
+    }
+
+    Signal::new(client_chan)
 }
 
 pub fn split<T: Clone Owned, U: Clone Owned>(signal: &Signal<Either<T, U>>, left: T, right: U) -> (Signal<T>, Signal<U>) {
