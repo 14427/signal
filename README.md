@@ -1,7 +1,7 @@
 signal
 ======
 
-Functional Reactive Programming implementation for Rust
+Functional Reactive Programming implementation for [Rust](http://www.rust-lang.org/)
 
 Currently a WIP
 
